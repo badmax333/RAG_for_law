@@ -66,7 +66,7 @@ class RAGPipeline:
             "text-generation",
             model=model,
             tokenizer=tokenizer,
-            max_new_tokens=1024, # Increased from 512 to 1024
+            max_new_tokens=2048,
             temperature=0.2,
             do_sample=True,
             top_k=50,

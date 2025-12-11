@@ -212,7 +212,7 @@ def evaluate_with_llm_judge(pipeline, validation_data, judge):
 def main():
     parser = argparse.ArgumentParser(description="Evaluate the RAG for Law pipeline.")
     parser.add_argument("--validation", type=str, default="data/validation_set.jsonl", help="Path to the validation set.")
-    parser.add_argument("--use_llm_judge", action="store_true", help="Use LLM as a judge for evaluation instead of ROUGE.")
+    parser.add_argument("--use_llm_judge", type=bool, default=True, help="Use LLM as a judge for evaluation instead of ROUGE.")
     args = parser.parse_args()
 
     print("Initializing RAG Pipeline for evaluation...")
@@ -220,7 +220,7 @@ def main():
     
     print(f"Loading validation set from {args.validation}...")
     validation_data = load_validation_set(args.validation)
-    
+
     if args.use_llm_judge:
         judge = LLMJudge()
         metrics = evaluate_with_llm_judge(rag_pipeline, validation_data, judge)
