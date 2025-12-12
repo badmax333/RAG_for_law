@@ -5,7 +5,7 @@ import numpy as np
 import faiss
 from sentence_transformers import SentenceTransformer
 from typing import List, Dict, Any
-from langchain.docstore.document import Document
+from langchain_core.documents import Document
 
 class PDDRetriever:
     """
@@ -21,24 +21,30 @@ class PDDRetriever:
     The search method returns a list of LangChain Document objects, making it
     compatible with LangChain pipelines.
     """
-    def __init__(self, pdd_path: str = "data/pdd.json", cache_dir: str = "faiss_langchain_cache"):
+    def __init__(self, pdd_path: str = "data/pdd.json", cache_dir: str = "faiss_langchain_cache",
+                 embedding_model: str = "intfloat/multilingual-e5-base"):
         """
         Initializes the retriever by loading data and FAISS indexes.
 
         Args:
             pdd_path (str): Path to the structured pdd.json file.
             cache_dir (str): Directory where FAISS indexes and metadata are stored.
+            embedding_model (str): HuggingFace embedding model name.
         """
         self.pdd_path = pdd_path
         self.cache_dir = cache_dir
-        self.embedding_model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
-        
+        self.model_name = embedding_model
+
+        print(f"Loading embedding model: {embedding_model}...")
+        self.embedding_model = SentenceTransformer(embedding_model)
+        print(f"Model loaded. Dimension: {self.embedding_model.get_sentence_embedding_dimension()}")
+
         self.sections: List[Dict] = []
         self.all_content_texts: List[str] = []
         self.all_content_metadata: List[Dict] = []
         self.section_index: Any = None
         self.content_index: Any = None
-        
+
         self._load_data()
         self._load_or_create_indexes()
 
@@ -76,6 +82,11 @@ class PDDRetriever:
         """Creates, normalizes, and saves FAISS indexes and metadata."""
         # 1. Vectorize sections
         section_texts = [f"{sec['name']}. {sec.get('description', '')}" for sec in self.sections]
+
+        # E5 models need "passage: " prefix for documents
+        if "e5" in self.model_name.lower():
+            section_texts = [f"passage: {text}" for text in section_texts]
+
         section_embeddings = self.embedding_model.encode(section_texts, convert_to_numpy=True)
         faiss.normalize_L2(section_embeddings)
         
@@ -104,7 +115,13 @@ class PDDRetriever:
                         })
         
         self.all_content_texts = [item['text'] for item in self.all_content_metadata]
-        content_embeddings = self.embedding_model.encode(self.all_content_texts, convert_to_numpy=True)
+
+        # E5 models need "passage: " prefix for documents
+        content_texts_to_encode = self.all_content_texts
+        if "e5" in self.model_name.lower():
+            content_texts_to_encode = [f"passage: {text}" for text in self.all_content_texts]
+
+        content_embeddings = self.embedding_model.encode(content_texts_to_encode, convert_to_numpy=True)
         faiss.normalize_L2(content_embeddings)
 
         self.content_index = faiss.IndexFlatIP(content_embeddings.shape[1])
@@ -127,7 +144,12 @@ class PDDRetriever:
             A list of LangChain Document objects, sorted by relevance.
         """
         # Level 1: Search by sections to get relevance scores for all sections
-        query_embedding = self.embedding_model.encode([query], convert_to_numpy=True)
+        # E5 models need "query: " prefix for queries
+        query_text = query
+        if "e5" in self.model_name.lower():
+            query_text = f"query: {query}"
+
+        query_embedding = self.embedding_model.encode([query_text], convert_to_numpy=True)
         faiss.normalize_L2(query_embedding)
         
         # Get scores for all sections
@@ -183,5 +205,5 @@ class PDDRetriever:
                 "combined_score": float(res['combined_score'])
             }
             documents.append(Document(page_content=metadata['text'], metadata=doc_metadata))
-            
+
         return documents
