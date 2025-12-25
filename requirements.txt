@@ -25,3 +25,11 @@ nltk==3.9.2
 protobuf==6.33.2
 sentencepiece==0.2.1
 langchain-huggingface==0.3.1
+
+# Telegram bot
+python-telegram-bot==22.5
+python-dotenv==1.0.0
+
+# Mistral AI API (альтернатива локальной модели)
+mistralai==1.2.4
+langchain-mistralai==0.2.2
