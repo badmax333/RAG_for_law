@@ -1,56 +1,57 @@
 import json
 import argparse
 import re
-import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
+import os
+import sys
+import time
+
+# Add parent directory to path to import config
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from config import MISTRAL_API_KEY
+from langchain_mistralai import ChatMistralAI
+from langchain_core.messages import HumanMessage
+
 from src.pipeline import RAGPipeline
 
 class LLMJudge:
     """
-    Uses a smaller LLM to act as a judge for evaluating RAG outputs.
+    Uses Mistral AI API to act as a judge for evaluating RAG outputs.
     """
-    def __init__(self, model_name: str = "mistralai/Mixtral-8x7B-Instruct-v0.1"):
+    def __init__(self, model_name: str = "mistral-large-latest"):
         """
-        Initializes the judge with a specified model.
+        Initializes the judge with Mistral AI API.
 
         Args:
-            model_name (str): The name of the model on Hugging Face Hub.
+            model_name (str): The name of the Mistral model to use via API.
         """
         self.model_name = model_name
-        self.tokenizer = None
-        self.generator = None
-        self._load_model()
-
-    def _load_model(self):
-        """Loads the tokenizer and the model for the judge."""
-        print(f"Loading judge model: {self.model_name}...")
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
-
-        model = AutoModelForCausalLM.from_pretrained(self.model_name)
         
-        self.generator = pipeline(
-            "text-generation",
-            model=model,
-            tokenizer=self.tokenizer,
-            torch_dtype=torch.float16,
-            device=0 if torch.cuda.is_available() else -1
+        if not MISTRAL_API_KEY or MISTRAL_API_KEY == "your_mistral_api_key_here":
+            raise ValueError(
+                "MISTRAL_API_KEY not set. Please set it in .env file or config.py. "
+                "Get your API key at https://console.mistral.ai/"
+            )
+        
+        print(f"Initializing Mistral AI API judge with model: {model_name}...")
+        # Инициализация LLM Judge через Mistral API
+        self.llm = ChatMistralAI(
+            model=model_name,
+            mistral_api_key=MISTRAL_API_KEY,
+            temperature=0.0,  # Use deterministic output for evaluation
+            max_tokens=500,
         )
-        print("Judge model loaded.")
+        print("Judge model initialized via API.")
 
-    def _generate(self, prompt: str, max_new_tokens: int = 250) -> str:
-        """Helper function to generate text from a prompt."""
-        generated_sequences = self.generator(
-            prompt,
-            max_new_tokens=max_new_tokens,
-            num_return_sequences=1,
-            do_sample=False, # Use greedy decoding for more deterministic output
-            pad_token_id=self.tokenizer.eos_token_id
-        )
-        full_output = generated_sequences[0]['generated_text']
-        answer = full_output.replace(prompt, "").strip()
-        return answer
+    def _generate(self, prompt: str, max_new_tokens: int = 500) -> str:
+        """Helper function to generate text from a prompt using API."""
+        try:
+            message = HumanMessage(content=prompt)
+            response = self.llm.invoke([message])
+            answer = response.content.strip()
+            return answer
+        except Exception as e:
+            print(f"Error generating response from API: {e}")
+            return ""
 
     def evaluate(self, query: str, context: list, generated_answer: str, reference_answer: str) -> dict:
         """
@@ -101,25 +102,74 @@ class LLMJudge:
         JSON:
         """
         
-        output = self._generate(prompt, max_new_tokens=300)
+        output = self._generate(prompt, max_new_tokens=500)
         
         try:
-            match = re.search(r'\{.*\}', output, re.DOTALL)
-            if match:
-                json_str = match.group(0)
-                scores = json.loads(json_str)
-                return {
-                    "relevance": float(scores.get("relevance", 0)),
-                    "faithfulness": float(scores.get("faithfulness", 0)),
-                    "completeness": float(scores.get("completeness", 0)),
-                    "clarity": float(scores.get("clarity", 0)),
-                    "justification": scores.get("justification", "No justification provided.")
-                }
+            # Сначала пытаемся извлечь JSON из markdown блока
+            json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', output, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(1)
             else:
-                print(f"Could not find JSON in judge output: {output}")
-                return self._get_default_scores()
-        except (json.JSONDecodeError, ValueError) as e:
-            print(f"Error parsing judge output: {e}\nOutput was: {output}")
+                # Если markdown блока нет, ищем JSON напрямую
+                json_match = re.search(r'\{.*\}', output, re.DOTALL)
+                if json_match:
+                    json_str = json_match.group(0)
+                else:
+                    print(f"Could not find JSON in judge output: {output[:200]}...")
+                    return self._get_default_scores()
+            
+            json_str = json_str.strip()
+            
+            # Пытаемся распарсить JSON напрямую
+            try:
+                scores = json.loads(json_str)
+            except json.JSONDecodeError:
+                # Если не получилось (из-за управляющих символов), используем regex для извлечения значений
+                # Это более надежный подход для невалидного JSON
+                relevance_match = re.search(r'"relevance"\s*:\s*(\d+)', json_str)
+                faithfulness_match = re.search(r'"faithfulness"\s*:\s*(\d+)', json_str)
+                completeness_match = re.search(r'"completeness"\s*:\s*(\d+)', json_str)
+                clarity_match = re.search(r'"clarity"\s*:\s*(\d+)', json_str)
+                
+                # Для justification ищем значение между кавычками, включая многострочные
+                # Ищем от "justification": " до закрывающей кавычки перед запятой или }
+                justification_value = None
+                justification_start = json_str.find('"justification"')
+                if justification_start != -1:
+                    # Находим открывающую кавычку значения
+                    quote_start = json_str.find('"', justification_start + len('"justification"'))
+                    if quote_start != -1:
+                        # Ищем закрывающую кавычку, которая идет перед запятой или }
+                        # Пропускаем экранированные кавычки
+                        i = quote_start + 1
+                        while i < len(json_str):
+                            if json_str[i] == '"' and json_str[i-1] != '\\':
+                                # Проверяем, что после кавычки идет запятая, } или пробел+}
+                                j = i + 1
+                                while j < len(json_str) and json_str[j] in [' ', '\n', '\t', '\r']:
+                                    j += 1
+                                if j >= len(json_str) or json_str[j] in [',', '}']:
+                                    justification_value = json_str[quote_start + 1:i]
+                                    break
+                            i += 1
+                
+                scores = {
+                    "relevance": int(relevance_match.group(1)) if relevance_match else 0,
+                    "faithfulness": int(faithfulness_match.group(1)) if faithfulness_match else 0,
+                    "completeness": int(completeness_match.group(1)) if completeness_match else 0,
+                    "clarity": int(clarity_match.group(1)) if clarity_match else 0,
+                    "justification": justification_value if justification_value else "No justification provided."
+                }
+            
+            return {
+                "relevance": float(scores.get("relevance", 0)),
+                "faithfulness": float(scores.get("faithfulness", 0)),
+                "completeness": float(scores.get("completeness", 0)),
+                "clarity": float(scores.get("clarity", 0)),
+                "justification": scores.get("justification", "No justification provided.")
+            }
+        except Exception as e:
+            print(f"Error parsing judge output: {e}\nOutput was: {output[:500]}...")
             return self._get_default_scores()
 
     def _get_default_scores(self):
@@ -274,8 +324,17 @@ def evaluate_retriever_precision_recall(pipeline, validation_data, top_k: int = 
         "false_negatives": false_negatives
     }
 
-def evaluate_with_llm_judge(pipeline, validation_data, judge):
-    """Evaluates the pipeline using an LLM as a judge."""
+def evaluate_with_llm_judge(pipeline, validation_data, judge, delay_between_requests: float = 0.3):
+    """
+    Evaluates the pipeline using an LLM as a judge.
+    
+    Args:
+        pipeline: The RAG pipeline.
+        validation_data: List of validation examples.
+        judge: LLMJudge instance.
+        delay_between_requests: Delay in seconds between API requests (default: 0.3s).
+                                Recommended: 0.1-0.5 seconds to avoid rate limits.
+    """
     all_scores = {
         "relevance": [],
         "faithfulness": [],
@@ -283,11 +342,18 @@ def evaluate_with_llm_judge(pipeline, validation_data, judge):
         "clarity": []
     }
 
-    print("\n--- Starting LLM Judge Evaluation ---")
+    print(f"\n--- Starting LLM Judge Evaluation (delay: {delay_between_requests}s between requests) ---")
     for i, example in enumerate(validation_data):
         print(f"Evaluating {i+1}/{len(validation_data)}: '{example['query']}'")
         
+        # Добавляем задержку перед запросом к pipeline (кроме первого запроса)
+        if i > 0:
+            time.sleep(delay_between_requests)
+        
         result = pipeline.run(example['query'], top_k_content=3)
+        
+        # Добавляем задержку после pipeline.run() и перед judge.evaluate()
+        time.sleep(delay_between_requests)
         
         scores = judge.evaluate(
             query=example['query'],
@@ -302,6 +368,10 @@ def evaluate_with_llm_judge(pipeline, validation_data, judge):
 
         for key in all_scores:
             all_scores[key].append(scores[key])
+        
+        # Добавляем задержку после запроса к API judge (кроме последнего запроса)
+        if i < len(validation_data) - 1:
+            time.sleep(delay_between_requests)
 
     # Calculate average scores
     avg_scores = {key: sum(values) / len(values) for key, values in all_scores.items()}
@@ -315,6 +385,7 @@ def main():
     parser.add_argument("--use_rouge", action="store_true", help="Use ROUGE for evaluation instead of LLM judge.")
     parser.add_argument("--evaluate_retriever", action="store_true", help="Evaluate retriever precision and recall.")
     parser.add_argument("--top_k", type=int, default=5, help="Number of documents to retrieve for retriever evaluation.")
+    parser.add_argument("--api_delay", type=float, default=0.3, help="Delay in seconds between API requests for LLM judge (default: 0.3, recommended: 0.1-0.5).")
     args = parser.parse_args()
 
     print("Initializing RAG Pipeline for evaluation...")
@@ -348,7 +419,7 @@ def main():
         print("---------------------------------")
     else:
         judge = LLMJudge()
-        metrics = evaluate_with_llm_judge(rag_pipeline, validation_data, judge)
+        metrics = evaluate_with_llm_judge(rag_pipeline, validation_data, judge, delay_between_requests=args.api_delay)
         
         print("\n--- LLM Judge Evaluation Results ---")
         print(f"Number of samples: {metrics['num_samples']}")

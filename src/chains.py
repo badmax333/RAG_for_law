@@ -4,7 +4,7 @@ from typing import List, Dict, Any
 
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnableLambda
-from langchain_huggingface import HuggingFacePipeline
+from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.output_parsers import PydanticOutputParser
 from pydantic import ValidationError, BaseModel
 
@@ -56,7 +56,7 @@ class RobustJsonOutputParser(PydanticOutputParser):
             )
 
 
-def create_sgr_chain(llm: HuggingFacePipeline):
+def create_sgr_chain(llm: BaseChatModel):
     """
     Creates the Schema-Guided Reasoning (SGR) chain using LangChain Expression Language.
     This chain performs initial generation, critique, iterative retrieval, synthesis, and correction.
@@ -177,10 +177,24 @@ def create_sgr_chain(llm: HuggingFacePipeline):
         initial_context_str = format_docs(initial_context_docs)
         try:
             initial_result: InitialGenerationOutput = initial_chain.invoke({"context": initial_context_str, "query": query})
-            reasoning_trace.append(TraceStep(step="Initial Generation", result=initial_result.dict()))
+            # Используем model_dump() для Pydantic v2 или dict() для v1, с mode='json' для безопасной сериализации
+            try:
+                result_dict = initial_result.model_dump(mode='json') if hasattr(initial_result, 'model_dump') else initial_result.dict()
+            except Exception:
+                # Fallback: конвертируем в простой dict вручную
+                result_dict = {"reasoning": str(initial_result.reasoning), "answer": str(initial_result.answer)}
+            reasoning_trace.append(TraceStep(step="Initial Generation", result=result_dict))
         except (ValidationError, Exception) as e:
             print(f"Error in Initial Generation: {e}")
-            return {"answer": "Не удалось сформировать ответ на начальном этапе.", "trace": [ts.dict() for ts in reasoning_trace]}
+            # Безопасная сериализация trace
+            trace_dicts = []
+            for ts in reasoning_trace:
+                try:
+                    trace_dict = ts.model_dump(mode='json') if hasattr(ts, 'model_dump') else ts.dict()
+                except Exception:
+                    trace_dict = {"step": str(ts.step), "result": str(ts.result)}
+                trace_dicts.append(trace_dict)
+            return {"answer": "Не удалось сформировать ответ на начальном этапе.", "trace": trace_dicts}
         
         initial_answer = initial_result.answer
 
@@ -191,11 +205,27 @@ def create_sgr_chain(llm: HuggingFacePipeline):
                 "context": initial_context_str, 
                 "initial_answer": initial_answer
             })
-            reasoning_trace.append(TraceStep(step="Critique and Decomposition", result=critique_result.dict()))
+            # Безопасная сериализация
+            try:
+                critique_dict = critique_result.model_dump(mode='json') if hasattr(critique_result, 'model_dump') else critique_result.dict()
+            except Exception:
+                critique_dict = {
+                    "reasoning": str(critique_result.reasoning),
+                    "gaps_found": str(critique_result.gaps_found),
+                    "new_queries": [str(q) for q in critique_result.new_queries]
+                }
+            reasoning_trace.append(TraceStep(step="Critique and Decomposition", result=critique_dict))
         except (ValidationError, Exception) as e:
             print(f"Error in Critique: {e}")
             # Fallback to initial answer if critique fails
-            return {"answer": initial_answer, "trace": [ts.dict() for ts in reasoning_trace]}
+            trace_dicts = []
+            for ts in reasoning_trace:
+                try:
+                    trace_dict = ts.model_dump(mode='json') if hasattr(ts, 'model_dump') else ts.dict()
+                except Exception:
+                    trace_dict = {"step": str(ts.step), "result": str(ts.result)}
+                trace_dicts.append(trace_dict)
+            return {"answer": initial_answer, "trace": trace_dicts}
 
         new_queries = critique_result.new_queries
         
@@ -222,7 +252,15 @@ def create_sgr_chain(llm: HuggingFacePipeline):
                     "final_context": final_context_str,
                     "initial_answer": initial_answer
                 })
-                reasoning_trace.append(TraceStep(step="Final Synthesis", result=synthesis_result.dict()))
+                # Безопасная сериализация
+                try:
+                    synthesis_dict = synthesis_result.model_dump(mode='json') if hasattr(synthesis_result, 'model_dump') else synthesis_result.dict()
+                except Exception:
+                    synthesis_dict = {
+                        "reasoning": str(synthesis_result.reasoning),
+                        "synthesized_answer": str(synthesis_result.synthesized_answer)
+                    }
+                reasoning_trace.append(TraceStep(step="Final Synthesis", result=synthesis_dict))
                 final_answer_for_correction = synthesis_result.synthesized_answer
             except (ValidationError, Exception) as e:
                 print(f"Error in Synthesis: {e}")
@@ -237,16 +275,30 @@ def create_sgr_chain(llm: HuggingFacePipeline):
                 "final_context": final_context_for_correction,
                 "answer_to_check": final_answer_for_correction
             })
-            reasoning_trace.append(TraceStep(step="Factual Verification and Correction", result=correction_result.dict()))
+            # Безопасная сериализация
+            try:
+                correction_dict = correction_result.model_dump(mode='json') if hasattr(correction_result, 'model_dump') else correction_result.dict()
+            except Exception:
+                correction_dict = {"final_answer": str(correction_result.final_answer)}
+            reasoning_trace.append(TraceStep(step="Factual Verification and Correction", result=correction_dict))
             final_answer = correction_result.final_answer
         except (ValidationError, Exception) as e:
             print(f"Error in Correction: {e}")
             # Fallback to the answer before correction if correction fails
             final_answer = final_answer_for_correction
         
+        # Безопасная сериализация финального trace
+        trace_dicts = []
+        for ts in reasoning_trace:
+            try:
+                trace_dict = ts.model_dump(mode='json') if hasattr(ts, 'model_dump') else ts.dict()
+            except Exception:
+                trace_dict = {"step": str(ts.step), "result": str(ts.result)}
+            trace_dicts.append(trace_dict)
+        
         return {
             "answer": final_answer if final_answer else "Не удалось сформировать ответ на основе предоставленного контекста.",
-            "trace": [ts.dict() for ts in reasoning_trace]
+            "trace": trace_dicts
         }
 
     return RunnableLambda(sgr_logic)

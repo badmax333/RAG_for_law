@@ -1,8 +1,11 @@
-import torch
-from transformers import BitsAndBytesConfig
-from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
-from langchain_huggingface import HuggingFacePipeline
+import os
+import sys
 from typing import Dict, List, Any
+
+# Add parent directory to path to import config
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import MISTRAL_API_KEY
+from langchain_mistralai import ChatMistralAI
 
 from .retriever import PDDRetriever
 from .chains import create_sgr_chain
@@ -25,56 +28,23 @@ class RAGPipeline:
         # 1. Initialize the retriever
         self.retriever = PDDRetriever(pdd_path=pdd_path, cache_dir=cache_dir)
         
-        # 2. Initialize the LLM
-        model_name = "mistralai/Mistral-7B-Instruct-v0.2"
-        print(f"Loading LLM: {model_name}...")
-        tokenizer = AutoTokenizer.from_pretrained(model_name, legacy=False, use_fast=False)
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
-
-        try:
-            bnb_config = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_quant_type="nf4",
-                bnb_4bit_compute_dtype=torch.bfloat16,
-                bnb_4bit_use_double_quant=True,
+        # 2. Initialize the LLM via Mistral API
+        if not MISTRAL_API_KEY or MISTRAL_API_KEY == "your_mistral_api_key_here":
+            raise ValueError(
+                "MISTRAL_API_KEY not set. Please set it in .env file or config.py. "
+                "Get your API key at https://console.mistral.ai/"
             )
         
-            model = AutoModelForCausalLM.from_pretrained(
-                model_name,
-                quantization_config=bnb_config,
-                device_map="auto",
-            )
-            print("Model loaded with 4-bit quantization (BitsAndBytesConfig).")
-        
-        except (ImportError, ValueError) as e:
-            print(f"4-bit quantization failed ({type(e).__name__}: {e}). Loading model in float16.")
-            try:
-                model = AutoModelForCausalLM.from_pretrained(
-                    model_name,
-                    torch_dtype=torch.float16,
-                    device_map="auto",
-                )
-            except Exception as fallback_error:
-                print(f"Fallback to float16 also failed: {fallback_error}. Trying without dtype...")
-                model = AutoModelForCausalLM.from_pretrained(
-                    model_name,
-                    device_map="auto",
-                )
-
-        hf_pipeline = pipeline(
-            "text-generation",
-            model=model,
-            tokenizer=tokenizer,
-            max_new_tokens=2048,
+        print("Initializing Mistral AI API client...")
+        # Инициализация LLM через Mistral API
+        # Примечание: таймаут настраивается автоматически библиотекой
+        self.llm = ChatMistralAI(
+            model="mistral-large-latest",  # Используем большую модель через API
+            mistral_api_key=MISTRAL_API_KEY,
             temperature=0.2,
-            do_sample=True,
-            top_k=50,
-            top_p=0.95,
-            return_full_text=False
+            max_tokens=2048,
         )
-        self.llm = HuggingFacePipeline(pipeline=hf_pipeline)
-        print("LLM loaded.")
+        print("Mistral AI API client initialized.")
 
         # 3. Create the main SGR chain
         self.sgr_chain = create_sgr_chain(self.llm)

@@ -5,7 +5,7 @@ import numpy as np
 import faiss
 from sentence_transformers import SentenceTransformer
 from typing import List, Dict, Any
-from langchain.docstore.document import Document
+from langchain_core.documents import Document
 
 class PDDRetriever:
     """
