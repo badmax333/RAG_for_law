@@ -1,0 +1,42 @@
+services:
+  rag-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rag-for-law
+    environment:
+      - LOG_LEVEL=INFO
+      - USE_API=${USE_API:-false}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY}
+      - PDD_PATH=data/pdd.json
+      - FAISS_CACHE_DIR=faiss_langchain_cache
+    volumes:
+      - ./data:/app/data
+      - ./faiss_langchain_cache:/app/faiss_langchain_cache
+      - ./logs:/app/logs
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    command: python main.py
+
+  rag-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rag-for-law-bot
+    environment:
+      - LOG_LEVEL=INFO
+      - USE_API=${USE_API:-true}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY}
+      - PDD_PATH=data/pdd.json
+      - FAISS_CACHE_DIR=faiss_langchain_cache
+    volumes:
+      - ./data:/app/data
+      - ./faiss_langchain_cache:/app/faiss_langchain_cache
+      - ./logs:/app/logs
+    restart: unless-stopped
+    command: python bot.py
+    profiles:
+      - bot
