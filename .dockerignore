@@ -1,0 +1,124 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env
+pip-log.txt
+pip-delete-this-directory.txt
+.tox
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.git
+.mypy_cache
+.pytest_cache
+.hypothesis
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Project specific
+logs/
+*.log
+.env
+.env.local
+.env.*.local
+
+# Backup files
+backup_local_files/
+
+# Jupyter notebooks
+*.ipynb_checkpoints
+
+# Temporary files
+*.tmp
+*.temp
+
+# Documentation (keep README and Docker docs)
+README.md
+!README.md
+DOCKER_DEPLOYMENT.md
+!DOCKER_DEPLOYMENT.md
+
+# Development files
+run_bot.bat
+
+# Keep test scripts
+test_docker.sh
+!test_docker.sh
+
+# Keep health check
+health_check.py
+!health_check.py
+
+# Cache directories (but keep the structure)
+faiss_langchain_cache/*
+!faiss_langchain_cache/.gitkeep
+
+# Docker files
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Large data files (keep structure)
+data/*.json
+data/*.docx
+data/*.pdf
+data/*.txt
+!data/.gitkeep
+
+# Additional Python build artifacts
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.so
+*$py.class
+
+# Node modules (if any)
+node_modules/
+
+# Additional development files
+*.sh
+*.bat
+docker-examples.sh
