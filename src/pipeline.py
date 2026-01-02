@@ -1,9 +1,12 @@
-import torch
-from transformers import BitsAndBytesConfig
-from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
-from langchain_huggingface import HuggingFacePipeline
+import os
+import sys
 from typing import Dict, List, Any
 import time
+
+# Add parent directory to path to import config
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import MISTRAL_API_KEY
+from langchain_mistralai import ChatMistralAI
 
 from .retriever import PDDRetriever
 from .chains import create_sgr_chain
@@ -99,13 +102,9 @@ class RAGPipeline:
             tokenizer=tokenizer,
             max_new_tokens=2048,
             temperature=0.2,
-            do_sample=True,
-            top_k=50,
-            top_p=0.95,
-            return_full_text=False
+            max_tokens=2048,
         )
-        self.llm = HuggingFacePipeline(pipeline=hf_pipeline)
-        print("LLM loaded.")
+        print("Mistral AI API client initialized.")
 
         # 3. Create chains
         self.sgr_chain = create_sgr_chain(self.llm)
