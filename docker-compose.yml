@@ -18,6 +18,7 @@ services:
     ports:
       - "8000:8000"
     restart: unless-stopped
+    init: true
     command: python main.py
 
   rag-bot:
@@ -37,6 +38,7 @@ services:
       - ./faiss_langchain_cache:/app/faiss_langchain_cache
       - ./logs:/app/logs
     restart: unless-stopped
+    init: true
     command: python bot.py
     profiles:
       - bot
