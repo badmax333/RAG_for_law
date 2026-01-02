@@ -151,6 +151,18 @@ pip install -r requirements.txt
 
 ## 🚀 Запуск
 
+### Telegram Bot
+```bash
+# Configure .env with your bot token and mistral api key!
+# Then run:
+docker compose --profile bot up -d --build
+```
+
+### Interactive CLI (Legacy)
+```bash
+docker compose run --rm rag-app python main.py "Когда можно обгонять?"
+```
+
 ### Интерактивный режим
 
 ```bash
@@ -276,21 +288,6 @@ model_name = "google/gemma-2b-it"  # 2B, ~2GB RAM
 | Cached | ~100ms | - |
 
 ---
-
-## 🚀 Usage
-
-### Telegram Bot
-```bash
-# Configure .env with your bot token and mistral api key!
-# Then run:
-docker compose --profile bot up -d --build
-```
-
-### Interactive CLI (Legacy)
-```bash
-docker compose run --rm rag-app python main.py "Когда можно обгонять?"
-```
-
 
 ## 🔮 Планы развития
 
