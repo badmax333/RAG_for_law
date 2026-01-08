@@ -1,8 +1,9 @@
-# Environment variables
+venv/
+__pycache__/
+.ipynb_checkpoints/
 .env
+.DS_Store
 *.env
-
-# Python
 __pycache__/
 *.py[cod]
 *$py.class

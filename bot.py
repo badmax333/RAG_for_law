@@ -33,8 +33,10 @@ from src.pipeline_api import RAGPipelineAPI
 load_dotenv()  
 
 
-
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+
+if LOG_LEVEL not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
+    raise ValueError(f"Invalid LOG_LEVEL: {LOG_LEVEL}")
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 
 TOP_K_DEFAULT = int(os.getenv("TOP_K_DEFAULT", "5"))
@@ -608,7 +610,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     await query.answer("Неизвестное действие.")
 
-# App init / run
 
 def build_app() -> Application:
     if not TOKEN:
